@@ -43,6 +43,7 @@ enum ProcessCategory {
 struct ProcessInfo {
     pid: u32,
     name: String,
+    full_path: String,
     memory_mb: u64,
     #[allow(dead_code)]
     cpu_percent: f64,
@@ -57,6 +58,10 @@ struct SmartFreezeEngine {
     previous_cpu_times: HashMap<u32, u64>,
     #[allow(dead_code)]
     processor_count: u32,
+    /// Maps process PID to parent PID
+    parent_map: HashMap<u32, u32>,
+    /// Maps PID to process name for quick lookup
+    process_names: HashMap<u32, String>,
 }
 
 #[cfg(windows)]
@@ -71,6 +76,8 @@ impl SmartFreezeEngine {
         Self {
             previous_cpu_times: HashMap::new(),
             processor_count,
+            parent_map: HashMap::new(),
+            process_names: HashMap::new(),
         }
     }
 
@@ -97,6 +104,10 @@ impl SmartFreezeEngine {
         let foreground_pid = Self::get_foreground_pid();
         let mut processes = Vec::new();
 
+        // Clear previous maps
+        self.parent_map.clear();
+        self.process_names.clear();
+
         unsafe {
             // Create snapshot of all processes
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -107,14 +118,15 @@ impl SmartFreezeEngine {
             let mut entry: PROCESSENTRY32W = mem::zeroed();
             entry.dwSize = mem::size_of::<PROCESSENTRY32W>() as u32;
 
-            // Iterate through processes
+            // First pass: build parent map
             if Process32FirstW(snapshot, &mut entry) != 0 {
                 loop {
                     let pid = entry.th32ProcessID;
+                    let parent_pid = entry.th32ParentProcessID;
 
-                    // Get process info
-                    if let Some(process_info) = self.get_process_info(pid, foreground_pid) {
-                        processes.push(process_info);
+                    // Store parent relationship
+                    if pid != 0 {
+                        self.parent_map.insert(pid, parent_pid);
                     }
 
                     if Process32NextW(snapshot, &mut entry) == 0 {
@@ -124,6 +136,34 @@ impl SmartFreezeEngine {
             }
 
             CloseHandle(snapshot);
+
+            // Second pass: get detailed process info
+            let snapshot2 = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snapshot2.is_null() || snapshot2 == (-1isize) as HANDLE {
+                return processes;
+            }
+
+            entry = mem::zeroed();
+            entry.dwSize = mem::size_of::<PROCESSENTRY32W>() as u32;
+
+            if Process32FirstW(snapshot2, &mut entry) != 0 {
+                loop {
+                    let pid = entry.th32ProcessID;
+
+                    // Get process info
+                    if let Some(process_info) = self.get_process_info(pid, foreground_pid) {
+                        // Store process name for parent lookup
+                        self.process_names.insert(pid, process_info.name.clone());
+                        processes.push(process_info);
+                    }
+
+                    if Process32NextW(snapshot2, &mut entry) == 0 {
+                        break;
+                    }
+                }
+            }
+
+            CloseHandle(snapshot2);
         }
 
         processes
@@ -142,10 +182,10 @@ impl SmartFreezeEngine {
                 return None;
             }
 
-            // Get process name
-            let name = self
-                .get_process_name(process)
-                .unwrap_or_else(|| format!("PID_{}", pid));
+            // Get process name and full path
+            let (name, full_path) = self
+                .get_process_name_and_path(process)
+                .unwrap_or_else(|| (format!("PID_{}", pid), String::new()));
 
             // Get memory usage
             let memory_mb = self.get_memory_usage(process);
@@ -153,14 +193,15 @@ impl SmartFreezeEngine {
             // Check if this is the foreground process
             let is_foreground = foreground_pid.map_or(false, |fg_pid| fg_pid == pid);
 
-            // Categorize the process
-            let category = self.categorize_process(&name);
+            // Categorize the process using name, path, and parent info
+            let category = self.categorize_process(pid, &name, &full_path);
 
             CloseHandle(process);
 
             Some(ProcessInfo {
                 pid,
                 name,
+                full_path,
                 memory_mb,
                 cpu_percent: 0.0, // CPU calculation requires time between samples
                 is_foreground,
@@ -169,17 +210,23 @@ impl SmartFreezeEngine {
         }
     }
 
-    /// Get process name from handle
-    fn get_process_name(&self, process: HANDLE) -> Option<String> {
+    /// Get process name and full path from handle
+    fn get_process_name_and_path(&self, process: HANDLE) -> Option<(String, String)> {
         unsafe {
             let mut buffer = vec![0u16; 1024];
             let mut size = buffer.len() as u32;
 
             // QueryFullProcessImageNameW with flags = 0 for native path
             if QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut size) != 0 {
-                // Convert to String and extract just the filename
-                let path = String::from_utf16_lossy(&buffer[..size as usize]);
-                path.split('\\').last().map(|s| s.to_string())
+                // Convert to String
+                let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
+                // Extract just the filename
+                let name = full_path
+                    .split('\\')
+                    .last()
+                    .unwrap_or(&full_path)
+                    .to_string();
+                Some((name, full_path))
             } else {
                 None
             }
@@ -243,19 +290,77 @@ impl SmartFreezeEngine {
         critical.iter().any(|&c| name.eq_ignore_ascii_case(c))
     }
 
-    /// Categorize a process based on its name
+    /// Categorize a process based on its name, path, and parent process
     ///
     /// Strategies used:
     /// 1. **Pattern matching on executable names** - Most reliable for known applications
-    /// 2. **Parent process detection** (future) - Games often launched by Steam/Epic/etc
-    /// 3. **Path analysis** (future) - Games typically in specific directories
+    /// 2. **Parent process detection** - Games often launched by Steam/Epic/etc
+    /// 3. **Path analysis** - Games typically in specific directories (Steam, Epic, etc.)
     /// 4. **Resource usage patterns** (future) - Games use GPU, browsers use many processes
-    fn categorize_process(&self, name: &str) -> ProcessCategory {
+    fn categorize_process(&self, pid: u32, name: &str, full_path: &str) -> ProcessCategory {
         let name_lower = name.to_lowercase();
+        let path_lower = full_path.to_lowercase();
 
         // Critical system processes
         if self.is_critical_process(name) {
             return ProcessCategory::Critical;
+        }
+
+        // Strategy 3: Path Analysis - Check if running from gaming directories
+        // This is very important as it catches games we don't know by name
+        let gaming_path_patterns = [
+            "\\steam\\",
+            "\\steamapps\\",
+            "\\steamlibrary\\",
+            "\\epic games\\",
+            "\\epicgames\\",
+            "\\origin games\\",
+            "\\gog galaxy\\",
+            "\\gog games\\",
+            "\\battle.net\\",
+            "\\ubisoft\\",
+            "\\ea games\\",
+            "\\riot games\\",
+            "\\program files\\steam\\",
+            "\\program files (x86)\\steam\\",
+            // Common custom Steam library locations
+            "\\games\\",
+            "\\my games\\",
+        ];
+
+        for pattern in &gaming_path_patterns {
+            if path_lower.contains(pattern) {
+                // Additional check: not a launcher itself running from these dirs
+                if !name_lower.contains("launcher")
+                    && !name_lower.contains("update")
+                    && !name_lower.contains("crash")
+                {
+                    return ProcessCategory::Gaming;
+                }
+            }
+        }
+
+        // Strategy 2: Parent Process Detection
+        // Check if parent is a gaming launcher
+        if let Some(&parent_pid) = self.parent_map.get(&pid) {
+            if let Some(parent_name) = self.process_names.get(&parent_pid) {
+                let parent_lower = parent_name.to_lowercase();
+                let gaming_parent_patterns = [
+                    "steam.exe",
+                    "epicgameslauncher.exe",
+                    "origin.exe",
+                    "battle.net.exe",
+                    "gog.exe",
+                    "galaxyclient.exe",
+                ];
+
+                for pattern in &gaming_parent_patterns {
+                    if parent_lower.contains(pattern) {
+                        // If launched by a game launcher, it's likely a game
+                        return ProcessCategory::Gaming;
+                    }
+                }
+            }
         }
 
         // Gaming category - Important to keep responsive
@@ -414,6 +519,8 @@ impl SmartFreezeEngine {
         Self {
             previous_cpu_times: HashMap::new(),
             processor_count: 0,
+            parent_map: HashMap::new(),
+            process_names: HashMap::new(),
         }
     }
 
@@ -429,7 +536,7 @@ impl SmartFreezeEngine {
         None
     }
 
-    fn get_process_name(&self, _process: usize) -> Option<String> {
+    fn get_process_name_and_path(&self, _process: usize) -> Option<(String, String)> {
         None
     }
 
@@ -445,7 +552,7 @@ impl SmartFreezeEngine {
         false
     }
 
-    fn categorize_process(&self, _name: &str) -> ProcessCategory {
+    fn categorize_process(&self, _pid: u32, _name: &str, _full_path: &str) -> ProcessCategory {
         ProcessCategory::Unknown
     }
 }

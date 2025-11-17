@@ -176,44 +176,117 @@ Communication apps are allowed to be frozen if they meet memory threshold and ar
 - Browsers save state automatically
 - Background tabs don't need CPU
 
-## Future Enhancement Strategies
+## Implemented Enhancement Strategies
 
-### Strategy 2: Parent Process Detection (Not Yet Implemented)
+### Strategy 2: Parent Process Detection ✅ IMPLEMENTED
 
 **Concept**: Identify processes by their parent process.
 
-**Example**:
+**Implementation**:
 ```rust
-// Games launched by Steam have Steam as parent
-if parent_process_name == "steam.exe" {
-    return ProcessCategory::Gaming;
+// Check if parent is a gaming launcher
+if let Some(&parent_pid) = self.parent_map.get(&pid) {
+    if let Some(parent_name) = self.process_names.get(&parent_pid) {
+        let parent_lower = parent_name.to_lowercase();
+        let gaming_parent_patterns = [
+            "steam.exe", "epicgameslauncher.exe", "origin.exe",
+            "battle.net.exe", "gog.exe", "galaxyclient.exe",
+        ];
+        // If launched by a game launcher, it's likely a game
+        if gaming_parent_patterns.iter().any(|p| parent_lower.contains(p)) {
+            return ProcessCategory::Gaming;
+        }
+    }
 }
 ```
 
+**How it works**:
+- During process enumeration, we build a map of PID → Parent PID using `th32ParentProcessID` from `PROCESSENTRY32W`
+- We also maintain a map of PID → Process Name for quick lookup
+- When categorizing, we check if the parent process is a known game launcher
+- If a process is launched by Steam/Epic/etc., it's categorized as Gaming
+
 **Advantages**:
-- Catches unknown game executables
-- More comprehensive than name matching
+- ✅ Catches unknown game executables
+- ✅ More comprehensive than name matching alone
+- ✅ Works for custom games and mods
 
-**Implementation Complexity**: Requires additional Win32 API calls to get parent PID.
+**Example Use Cases**:
+- `mygame.exe` launched by Steam → Gaming
+- `custommod.exe` launched by Origin → Gaming
+- Unknown indie game launched by GOG → Gaming
 
-### Strategy 3: Path Analysis (Not Yet Implemented)
+### Strategy 3: Path Analysis ✅ IMPLEMENTED
 
 **Concept**: Categorize based on installation path.
 
-**Example**:
+**Implementation**:
 ```rust
-if path.starts_with("C:\\Program Files\\Steam\\") {
-    return ProcessCategory::Gaming;
+// Check if running from gaming directories
+let gaming_path_patterns = [
+    "\\steam\\", "\\steamapps\\", "\\steamlibrary\\",
+    "\\epic games\\", "\\epicgames\\",
+    "\\origin games\\", "\\gog galaxy\\", "\\gog games\\",
+    "\\battle.net\\", "\\ubisoft\\", "\\ea games\\", "\\riot games\\",
+    "\\program files\\steam\\", "\\program files (x86)\\steam\\",
+    "\\games\\", "\\my games\\",
+];
+
+for pattern in &gaming_path_patterns {
+    if path_lower.contains(pattern) {
+        // Additional check: not a launcher/updater
+        if !name_lower.contains("launcher") 
+            && !name_lower.contains("update")
+            && !name_lower.contains("crash") {
+            return ProcessCategory::Gaming;
+        }
+    }
 }
 ```
 
-**Advantages**:
-- Works for custom executables
-- Can identify installation type
+**How it works**:
+- We use `QueryFullProcessImageNameW` to get the full path of each process
+- Check if the path contains known gaming directory patterns
+- Filter out launchers and updaters that may run from these directories
+- Detects ALL Steam libraries, not just default locations
 
-**Limitations**:
-- Games can be installed anywhere
-- Requires full path query (additional API call)
+**Steam Library Detection**:
+The implementation detects:
+- Default Steam installation: `C:\Program Files\Steam\`
+- Default Steam library: `C:\Program Files (x86)\Steam\`
+- Custom Steam libraries: Any path containing `\steamlibrary\` or `\steamapps\`
+- User-created game directories: `\Games\`, `\My Games\`
+
+**Advantages**:
+- ✅ Works for custom executables and unknown games
+- ✅ Detects games regardless of process name
+- ✅ Catches all Steam library locations (custom and default)
+- ✅ Works for multiple game platforms
+
+**Example Use Cases**:
+- `D:\SteamLibrary\steamapps\common\Game\game.exe` → Gaming
+- `E:\Games\MyCustomGame\play.exe` → Gaming
+- `C:\Epic Games\Fortnite\FortniteClient-Win64-Shipping.exe` → Gaming
+
+**Limitations Addressed**:
+- ✅ Detects Steam libraries in ANY location (D:, E:, custom paths)
+- ✅ Pattern matching covers all major platforms
+- ✅ Filters out non-game executables (launchers, updaters, crash handlers)
+
+## Future Enhancement Strategies
+
+### Strategy 4: Resource Usage Patterns (Not Yet Implemented)
+
+**Concept**: Identify process type by behavior.
+
+**Patterns**:
+- **Games**: High GPU usage, consistent frame timing
+- **Browsers**: Many child processes, varied memory usage
+- **Background Services**: Low CPU, steady memory
+
+**Advantages**:
+- Works for unknown applications
+- More accurate categorization
 
 ### Strategy 4: Resource Usage Patterns (Not Yet Implemented)
 
@@ -230,7 +303,9 @@ if path.starts_with("C:\\Program Files\\Steam\\") {
 
 **Implementation Complexity**: Requires multiple samples over time, GPU API access.
 
-### Strategy 5: Process Tree Analysis (Not Yet Implemented)
+### Strategy 5: Process Tree Analysis (Partially Implemented)
+
+**Current Implementation**: We build parent-child relationships during enumeration using `th32ParentProcessID`.
 
 **Concept**: Analyze relationships between processes.
 
@@ -255,22 +330,34 @@ chrome.exe (parent)
    YES → Critical (never freeze)
    NO → Continue
 
-2. Does name match gaming patterns?
+2. STRATEGY 3: Does path contain gaming directory patterns?
+   (Steam, Epic Games, Origin, GOG, etc.)
+   YES (and not launcher/updater) → Gaming (important to keep)
+   NO → Continue
+
+3. STRATEGY 2: Is parent process a game launcher?
+   (Steam, Epic, Origin, Battle.net, GOG)
    YES → Gaming (important to keep)
    NO → Continue
 
-3. Does name match communication patterns?
+4. STRATEGY 1: Does name match gaming patterns?
+   YES → Gaming (important to keep)
+   NO → Continue
+
+5. Does name match communication patterns?
    YES → Communication (potentially important)
    NO → Continue
 
-4. Does name match background service patterns?
+6. Does name match background service patterns?
    YES → Background Service (safe to freeze)
    NO → Continue
 
-5. Does name match productivity patterns?
+7. Does name match productivity patterns?
    YES → Productivity (safe when not foreground)
    NO → Unknown
 ```
+
+**Note**: Strategies 2 and 3 are checked BEFORE name matching to ensure maximum game detection coverage.
 
 ## Freeze Decision Logic
 

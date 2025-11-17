@@ -68,11 +68,26 @@ Applications that are safe to suspend when not actively in use:
 
 **Strategy**: Match productivity tool patterns, safe to freeze when not foreground
 
-### Future Categorization Strategies
+### Implemented Categorization Strategies
+
+The engine uses three complementary strategies for maximum game detection:
+
+1. **Pattern Matching** (Strategy 1): Matches executable names against known patterns
+2. **Path Analysis** (Strategy 3): Detects processes running from gaming directories
+   - Detects ALL Steam library locations (default and custom)
+   - Covers Epic Games, Origin, GOG, Battle.net, Ubisoft, EA Games, Riot Games
+   - Recognizes common game directories like `\Games\`, `\My Games\`
+3. **Parent Process Detection** (Strategy 2): Identifies games launched by game launchers
+   - If parent is Steam/Epic/Origin/GOG/Battle.net → categorize as Gaming
+
+**Path Analysis Details**:
+- `D:\SteamLibrary\steamapps\common\Game\game.exe` → Gaming
+- `E:\Games\MyCustomGame\play.exe` → Gaming
+- `C:\Epic Games\Fortnite\FortniteClient.exe` → Gaming
+
+### Future Enhancement Strategies
 
 Additional strategies that can be implemented:
-- **Parent Process Detection**: Games launched by Steam/Epic have specific parent processes
-- **Path Analysis**: Games typically installed in `C:\Program Files\` or `C:\Games\`
 - **Resource Usage Patterns**: Games typically use GPU, browsers spawn many child processes
 - **Process Tree Analysis**: Identify related processes (e.g., browser with multiple helpers)
 
