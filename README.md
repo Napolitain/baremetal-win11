@@ -7,10 +7,11 @@ A smart freeze engine for Windows 11 that intelligently identifies heavy but saf
 - **Process Enumeration**: Lists all running processes on the system
 - **CPU & Memory Detection**: Monitors CPU and memory usage of processes
 - **Foreground Window Detection**: Identifies the currently active application to avoid freezing it
+- **Intelligent Process Categorization**: Automatically categorizes processes into importance levels
 - **Smart Filtering**: Returns a list of heavy processes that are safe to freeze based on:
   - Memory usage threshold (configurable, default: 100 MB)
   - Foreground status (active apps are never frozen)
-  - Critical system processes (protected by default)
+  - Process category (critical and gaming processes protected by default)
 
 ## Architecture
 
@@ -20,19 +21,60 @@ The smart freeze engine uses Win32 APIs to:
 - Detect the foreground window using `GetForegroundWindow` and `GetWindowThreadProcessId`
 - Query process names with `QueryFullProcessImageNameW`
 
-### Protected System Processes
+### Process Categorization Strategies
 
-The following critical processes are never considered for freezing:
-- System
-- smss.exe
-- csrss.exe
-- wininit.exe
-- services.exe
-- lsass.exe
-- svchost.exe
-- winlogon.exe
-- explorer.exe
-- dwm.exe (Desktop Window Manager)
+The engine uses multiple strategies to intelligently categorize processes:
+
+#### 1. **Critical System Processes** (Never Freeze)
+Protected system processes essential for Windows operation:
+- System, smss.exe, csrss.exe, wininit.exe, services.exe
+- lsass.exe, svchost.exe, winlogon.exe
+- explorer.exe, dwm.exe (Desktop Window Manager)
+
+#### 2. **Gaming Processes** (Important to Keep)
+Game launchers, executables, and related services that should remain responsive:
+- **Game Launchers**: Steam, Epic Games, Origin, GOG Galaxy, Battle.net
+- **Anti-cheat Systems**: EasyAntiCheat, BattlEye, Vanguard
+- **Game Executables**: Common patterns like game.exe, launcher.exe
+- **Examples**: CS:GO, Dota 2, League of Legends, Valorant, Overwatch, Minecraft
+
+**Strategy**: Pattern matching on executable names for known game-related processes
+
+#### 3. **Communication Apps** (Potentially Important)
+Chat, voice, and video applications that users may want to keep responsive:
+- **Chat Apps**: Discord, Slack, Teams, Telegram, Signal, WhatsApp
+- **Voice/Video**: Zoom, Skype, Mumble, TeamSpeak, Ventrilo
+- **Matrix Clients**: Element, Riot
+
+**Strategy**: Match known communication app executable names
+
+#### 4. **Background Services** (Safe to Freeze)
+Launchers, updaters, and utilities that run in the background:
+- **Game Launchers (Background)**: Ubisoft Connect, Epic Online Services
+- **Graphics Utilities**: NVIDIA GeForce Experience, AMD Radeon Software
+- **Developer Tools**: JetBrains Toolbox
+- **Updaters**: Various update.exe, updater.exe, helper.exe processes
+- **Cloud Sync**: OneDrive, Dropbox, Google Drive Sync
+
+**Strategy**: Match known background service patterns and utilities
+
+#### 5. **Productivity/Browsers** (Safe to Freeze When Not Foreground)
+Applications that are safe to suspend when not actively in use:
+- **Browsers**: Chrome, Firefox, Edge, Opera, Brave, Vivaldi
+- **Office Apps**: Excel, Word, PowerPoint, Outlook, OneNote
+- **IDEs/Editors**: VSCode, PyCharm, IntelliJ, Rider, Sublime Text, Atom
+- **Media Players**: Spotify, VLC, iTunes, MusicBee
+- **Note-taking**: Notion, Obsidian
+
+**Strategy**: Match productivity tool patterns, safe to freeze when not foreground
+
+### Future Categorization Strategies
+
+Additional strategies that can be implemented:
+- **Parent Process Detection**: Games launched by Steam/Epic have specific parent processes
+- **Path Analysis**: Games typically installed in `C:\Program Files\` or `C:\Games\`
+- **Resource Usage Patterns**: Games typically use GPU, browsers spawn many child processes
+- **Process Tree Analysis**: Identify related processes (e.g., browser with multiple helpers)
 
 ## Requirements
 

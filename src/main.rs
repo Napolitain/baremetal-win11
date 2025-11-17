@@ -19,6 +19,24 @@ use windows_sys::Win32::System::Threading::{
 #[cfg(windows)]
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
+/// Process importance category
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum ProcessCategory {
+    /// Critical system processes (never freeze)
+    Critical,
+    /// Gaming-related processes (important to keep responsive)
+    Gaming,
+    /// Communication apps (potentially important)
+    Communication,
+    /// Background services and launchers (safe to freeze)
+    BackgroundService,
+    /// Browsers and productivity apps (safe to freeze when not foreground)
+    Productivity,
+    /// Unknown/uncategorized processes
+    Unknown,
+}
+
 /// Represents a process with its resource usage
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -29,6 +47,7 @@ struct ProcessInfo {
     #[allow(dead_code)]
     cpu_percent: f64,
     is_foreground: bool,
+    category: ProcessCategory,
 }
 
 /// Smart freeze engine that detects heavy but safe-to-freeze processes
@@ -134,6 +153,9 @@ impl SmartFreezeEngine {
             // Check if this is the foreground process
             let is_foreground = foreground_pid.map_or(false, |fg_pid| fg_pid == pid);
 
+            // Categorize the process
+            let category = self.categorize_process(&name);
+
             CloseHandle(process);
 
             Some(ProcessInfo {
@@ -142,6 +164,7 @@ impl SmartFreezeEngine {
                 memory_mb,
                 cpu_percent: 0.0, // CPU calculation requires time between samples
                 is_foreground,
+                category,
             })
         }
     }
@@ -182,6 +205,7 @@ impl SmartFreezeEngine {
     /// - Memory usage > 100 MB (configurable threshold)
     /// - Not the foreground process
     /// - Not critical system processes
+    /// - Not gaming-related processes (to keep games responsive)
     fn find_heavy_processes(&mut self, min_memory_mb: u64) -> Vec<ProcessInfo> {
         let processes = self.enumerate_processes();
 
@@ -193,8 +217,10 @@ impl SmartFreezeEngine {
                 p.memory_mb >= min_memory_mb
                 // 2. Not the foreground process
                 && !p.is_foreground
-                // 3. Not critical system processes (simple check by name)
-                && !self.is_critical_process(&p.name)
+                // 3. Not critical system processes
+                && p.category != ProcessCategory::Critical
+                // 4. Not gaming processes (important to keep responsive)
+                && p.category != ProcessCategory::Gaming
             })
             .collect()
     }
@@ -215,6 +241,168 @@ impl SmartFreezeEngine {
         ];
 
         critical.iter().any(|&c| name.eq_ignore_ascii_case(c))
+    }
+
+    /// Categorize a process based on its name
+    ///
+    /// Strategies used:
+    /// 1. **Pattern matching on executable names** - Most reliable for known applications
+    /// 2. **Parent process detection** (future) - Games often launched by Steam/Epic/etc
+    /// 3. **Path analysis** (future) - Games typically in specific directories
+    /// 4. **Resource usage patterns** (future) - Games use GPU, browsers use many processes
+    fn categorize_process(&self, name: &str) -> ProcessCategory {
+        let name_lower = name.to_lowercase();
+
+        // Critical system processes
+        if self.is_critical_process(name) {
+            return ProcessCategory::Critical;
+        }
+
+        // Gaming category - Important to keep responsive
+        // Strategy: Match game launchers, game executables, and anti-cheat services
+        let gaming_patterns = [
+            // Game launchers
+            "steam.exe",
+            "steamwebhelper.exe",
+            "steamservice.exe",
+            "epicgameslauncher.exe",
+            "epicwebhelper.exe",
+            "origin.exe",
+            "originwebhelper.exe",
+            "gog.exe",
+            "galaxyclient.exe",
+            "battle.net.exe",
+            "blizzard.exe",
+            // Game executables (common patterns)
+            "game.exe",
+            "launcher.exe",
+            // Anti-cheat systems
+            "easyanticheat.exe",
+            "battleye.exe",
+            "vanguard.exe",
+            // Common game executables (examples)
+            "csgo.exe",
+            "dota2.exe",
+            "leagueoflegends.exe",
+            "valorant.exe",
+            "overwatch.exe",
+            "minecraft.exe",
+        ];
+
+        for pattern in &gaming_patterns {
+            if name_lower.contains(pattern) {
+                return ProcessCategory::Gaming;
+            }
+        }
+
+        // Communication category - Potentially important
+        // Strategy: Match known chat/voice/video apps
+        let communication_patterns = [
+            "discord.exe",
+            "discordcanary.exe",
+            "discordptb.exe",
+            "slack.exe",
+            "teams.exe",
+            "zoom.exe",
+            "skype.exe",
+            "telegram.exe",
+            "signal.exe",
+            "element.exe",
+            "matrix.exe",
+            "riot.exe",
+            "mumble.exe",
+            "teamspeak.exe",
+            "ventrilo.exe",
+            "whatsapp.exe",
+            "messenger.exe",
+        ];
+
+        for pattern in &communication_patterns {
+            if name_lower.contains(pattern) {
+                return ProcessCategory::Communication;
+            }
+        }
+
+        // Background services and launchers - Safe to freeze
+        // Strategy: Match known background services, updaters, and launchers
+        let background_patterns = [
+            // Launchers that are just background services
+            "uplay.exe",
+            "upc.exe",
+            "ubisoftconnect.exe",
+            "epiconlineservices.exe",
+            // Graphics/hardware utilities
+            "nvcontainer.exe",
+            "nvidia share.exe",
+            "geforce experience.exe",
+            "nvcplui.exe",
+            "nvprofileupdater.exe",
+            "amdrsserv.exe",
+            "radeonsoft.exe",
+            // Developer tools and IDEs (when not foreground)
+            "jetbrains.toolbox.exe",
+            "jetbrains-toolbox.exe",
+            // Updaters and helpers
+            "update.exe",
+            "updater.exe",
+            "helper.exe",
+            "crashhandler.exe",
+            "crashreporter.exe",
+            // Cloud sync services
+            "onedrive.exe",
+            "dropbox.exe",
+            "googledrivesync.exe",
+        ];
+
+        for pattern in &background_patterns {
+            if name_lower.contains(pattern) {
+                return ProcessCategory::BackgroundService;
+            }
+        }
+
+        // Productivity/Browsers - Safe to freeze when not foreground
+        // Strategy: Match browsers, office apps, media players
+        let productivity_patterns = [
+            // Browsers
+            "chrome.exe",
+            "firefox.exe",
+            "msedge.exe",
+            "edge.exe",
+            "opera.exe",
+            "brave.exe",
+            "vivaldi.exe",
+            // Office/Productivity
+            "excel.exe",
+            "word.exe",
+            "powerpoint.exe",
+            "outlook.exe",
+            "onenote.exe",
+            "notion.exe",
+            "obsidian.exe",
+            // IDEs and editors (when not foreground)
+            "code.exe",
+            "code-insiders.exe",
+            "atom.exe",
+            "sublime.exe",
+            "notepad++.exe",
+            "pycharm.exe",
+            "intellij.exe",
+            "rider.exe",
+            // Media players
+            "spotify.exe",
+            "vlc.exe",
+            "itunes.exe",
+            "musicbee.exe",
+        ];
+
+        for pattern in &productivity_patterns {
+            if name_lower.contains(pattern) {
+                return ProcessCategory::Productivity;
+            }
+        }
+
+        // Default to unknown
+        ProcessCategory::Unknown
     }
 }
 
@@ -255,6 +443,10 @@ impl SmartFreezeEngine {
 
     fn is_critical_process(&self, _name: &str) -> bool {
         false
+    }
+
+    fn categorize_process(&self, _name: &str) -> ProcessCategory {
+        ProcessCategory::Unknown
     }
 }
 
@@ -298,13 +490,24 @@ fn run_engine() {
             "Found {} processes safe to freeze:\n",
             heavy_processes.len()
         );
-        println!("{:<8} {:<50} {:>12}", "PID", "Name", "Memory (MB)");
-        println!("{}", "-".repeat(72));
+        println!(
+            "{:<8} {:<40} {:>12} {:<20}",
+            "PID", "Name", "Memory (MB)", "Category"
+        );
+        println!("{}", "-".repeat(82));
 
         for process in &heavy_processes {
+            let category_str = match process.category {
+                ProcessCategory::Critical => "Critical",
+                ProcessCategory::Gaming => "Gaming",
+                ProcessCategory::Communication => "Communication",
+                ProcessCategory::BackgroundService => "Background",
+                ProcessCategory::Productivity => "Productivity",
+                ProcessCategory::Unknown => "Unknown",
+            };
             println!(
-                "{:<8} {:<50} {:>12}",
-                process.pid, process.name, process.memory_mb
+                "{:<8} {:<40} {:>12} {:<20}",
+                process.pid, process.name, process.memory_mb, category_str
             );
         }
 
@@ -326,17 +529,26 @@ fn run_engine() {
 
     println!("\nTop 10 by memory usage:");
     println!(
-        "{:<8} {:<50} {:>12} {:<12}",
-        "PID", "Name", "Memory (MB)", "Foreground"
+        "{:<8} {:<35} {:>12} {:<15} {:<12}",
+        "PID", "Name", "Memory (MB)", "Category", "Foreground"
     );
     println!("{}", "-".repeat(84));
 
     for process in sorted.iter().take(10) {
+        let category_str = match process.category {
+            ProcessCategory::Critical => "Critical",
+            ProcessCategory::Gaming => "Gaming",
+            ProcessCategory::Communication => "Communication",
+            ProcessCategory::BackgroundService => "Background",
+            ProcessCategory::Productivity => "Productivity",
+            ProcessCategory::Unknown => "Unknown",
+        };
         println!(
-            "{:<8} {:<50} {:>12} {:<12}",
+            "{:<8} {:<35} {:>12} {:<15} {:<12}",
             process.pid,
             process.name,
             process.memory_mb,
+            category_str,
             if process.is_foreground { "YES" } else { "" }
         );
     }
