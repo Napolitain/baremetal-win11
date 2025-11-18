@@ -94,29 +94,35 @@ pub fn run_system_tray(state: Arc<Mutex<DaemonState>>) -> Result<(), Box<dyn std
                     }
                 }
             } else if event.id == quit_item.id() {
-                // Quit daemon - resume all frozen processes
+                // Quit daemon - restart all terminated processes
                 println!("[SmartFreeze] Shutting down...");
 
-                let state_guard = state.lock().unwrap();
-                let pids: Vec<u32> = state_guard.frozen_pids.iter().copied().collect();
-                drop(state_guard);
+                // Load from persistence to get exe paths
+                let persistence = crate::persistence::FileStatePersistence::with_default_path();
+                use crate::persistence::StatePersistence;
 
-                if !pids.is_empty() {
-                    println!("[SmartFreeze] Resuming {} frozen processes...", pids.len());
-                    let controller = crate::windows::WindowsProcessController::new();
-                    use crate::freeze_engine::ProcessController;
+                if let Ok(Some(saved_state)) = persistence.load() {
+                    let valid = saved_state.get_valid_processes();
+                    if !valid.is_empty() {
+                        println!("[SmartFreeze] Restarting {} terminated processes...", valid.len());
+                        let controller = crate::windows::WindowsProcessController::new();
 
-                    for pid in pids {
-                        match controller.resume(pid) {
-                            Ok(_) => println!("[SmartFreeze]   ✓ Resumed PID {}", pid),
-                            Err(e) => eprintln!("[SmartFreeze]   ✗ Failed to resume {}: {}", pid, e),
+                        for frozen in valid {
+                            match controller.restart_process(&frozen.exe_path) {
+                                Ok(new_pid) => println!(
+                                    "[SmartFreeze]   ✓ Restarted {} (new PID: {})",
+                                    frozen.name, new_pid
+                                ),
+                                Err(e) => eprintln!(
+                                    "[SmartFreeze]   ✗ Failed to restart {}: {}",
+                                    frozen.name, e
+                                ),
+                            }
                         }
                     }
                 }
 
                 // Clear persistent state
-                let persistence = crate::persistence::FileStatePersistence::with_default_path();
-                use crate::persistence::StatePersistence;
                 let _ = persistence.save(&crate::persistence::PersistentState::new());
 
                 println!("[SmartFreeze] Goodbye!");

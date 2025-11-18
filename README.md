@@ -99,6 +99,19 @@ cargo build --release
 
 ## Installation
 
+### Via Scoop (Recommended)
+```powershell
+scoop bucket add napolitain https://github.com/Napolitain/scoop
+scoop install baremetal-gaming
+```
+
+Scoop will automatically handle updates when new versions are released.
+
+### From Binary Release
+1. Download the latest release from [Releases](https://github.com/Napolitain/baremetal-win11/releases)
+2. Extract `smart-freeze.exe` from the ZIP
+3. Run from command prompt or PowerShell
+
 ### From Source
 ```bash
 git clone https://github.com/Napolitain/baremetal-win11.git

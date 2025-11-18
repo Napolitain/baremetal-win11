@@ -13,11 +13,12 @@ const MAX_STATE_AGE_SECS: u64 = 3600; // 1 hour
 pub struct FrozenProcess {
     pub pid: u32,
     pub name: String,
+    pub exe_path: String,
     pub timestamp: u64,
 }
 
 impl FrozenProcess {
-    pub fn new(pid: u32, name: String) -> Self {
+    pub fn new(pid: u32, name: String, exe_path: String) -> Self {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -26,6 +27,7 @@ impl FrozenProcess {
         Self {
             pid,
             name,
+            exe_path,
             timestamp,
         }
     }
@@ -58,8 +60,8 @@ impl PersistentState {
         self.frozen_processes.is_empty()
     }
 
-    pub fn add(&mut self, pid: u32, name: String) {
-        self.frozen_processes.push(FrozenProcess::new(pid, name));
+    pub fn add(&mut self, pid: u32, name: String, exe_path: String) {
+        self.frozen_processes.push(FrozenProcess::new(pid, name, exe_path));
     }
 
     pub fn remove(&mut self, pid: u32) {

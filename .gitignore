@@ -21,3 +21,4 @@ Desktop.ini
 # Backup files
 *.bak
 *.tmp
+.env

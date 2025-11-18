@@ -39,28 +39,35 @@ fn recover_from_crash(persistence: &FileStatePersistence) {
         let valid = old_state.get_valid_processes();
         if !valid.is_empty() {
             println!(
-                "[SmartFreeze] Recovering from previous crash ({} frozen processes)...",
+                "[SmartFreeze] Recovering from previous crash ({} terminated processes)...",
                 valid.len()
             );
             let controller = WindowsProcessController::new();
-            let mut resumed = 0;
+            let mut restarted = 0;
             let mut failed = 0;
 
             for frozen in valid {
-                match controller.resume(frozen.pid) {
-                    Ok(_) => {
-                        println!("[SmartFreeze] ✓ Resumed {} (PID {})", frozen.name, frozen.pid);
-                        resumed += 1;
+                match controller.restart_process(&frozen.exe_path) {
+                    Ok(new_pid) => {
+                        println!(
+                            "[SmartFreeze] ✓ Restarted {} (new PID: {})",
+                            frozen.name, new_pid
+                        );
+                        restarted += 1;
                     }
                     Err(_) => {
+                        eprintln!(
+                            "[SmartFreeze] ✗ Failed to restart {}",
+                            frozen.name
+                        );
                         failed += 1;
                     }
                 }
             }
 
             println!(
-                "[SmartFreeze] Recovery complete: {} resumed, {} skipped",
-                resumed, failed
+                "[SmartFreeze] Recovery complete: {} restarted, {} failed",
+                restarted, failed
             );
         }
         let _ = persistence.delete();
@@ -122,17 +129,17 @@ fn monitor_loop(
                     match engine.freeze_process(process.pid) {
                         Ok(_) => {
                             state_guard.add_frozen(process.pid);
-                            persistent_state.add(process.pid, process.name.clone());
+                            persistent_state.add(process.pid, process.name.clone(), process.full_path.clone());
                             total_memory += process.memory_mb;
                             frozen_count += 1;
                             println!(
-                                "[SmartFreeze]   ❄️  Froze {} (PID {}, {} MB)",
+                                "[SmartFreeze]   💀 Terminated {} (PID {}, {} MB) - RAM freed!",
                                 process.name, process.pid, process.memory_mb
                             );
                         }
                         Err(e) => {
                             eprintln!(
-                                "[SmartFreeze]   ✗ Failed to freeze {} (PID {}): {}",
+                                "[SmartFreeze]   ✗ Failed to terminate {} (PID {}): {}",
                                 process.name, process.pid, e
                             );
                         }
@@ -145,38 +152,48 @@ fn monitor_loop(
                 }
 
                 println!(
-                    "[SmartFreeze] ✓ Froze {} processes, freed ~{} MB",
+                    "[SmartFreeze] ✓ Terminated {} processes, freed ~{} MB RAM!",
                     frozen_count, total_memory
                 );
             } else {
                 eprintln!("[SmartFreeze] Failed to enumerate safe processes");
             }
         } else if !gaming_running && state_guard.game_detected {
-            // Game exited - resume all
-            println!("[SmartFreeze] 🎮 Game closed. Resuming processes...");
+            // Game exited - restart all terminated processes
+            println!("[SmartFreeze] 🎮 Game closed. Restarting terminated processes...");
             state_guard.game_detected = false;
 
-            let pids = state_guard.clear_frozen();
-            let mut resumed_count = 0;
+            // Load from persistence to get exe paths
+            if let Ok(Some(saved_state)) = persistence.load() {
+                let mut restarted_count = 0;
+                let restart_controller = WindowsProcessController::new();
 
-            for pid in pids {
-                match engine.resume_process(pid) {
-                    Ok(_) => {
-                        println!("[SmartFreeze]   ✓ Resumed PID {}", pid);
-                        resumed_count += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("[SmartFreeze]   ✗ Failed to resume PID {}: {}", pid, e);
+                for frozen in saved_state.get_valid_processes() {
+                    match restart_controller.restart_process(&frozen.exe_path) {
+                        Ok(new_pid) => {
+                            println!(
+                                "[SmartFreeze]   ✓ Restarted {} (new PID: {})",
+                                frozen.name, new_pid
+                            );
+                            restarted_count += 1;
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[SmartFreeze]   ✗ Failed to restart {}: {}",
+                                frozen.name, e
+                            );
+                        }
                     }
                 }
+
+                println!("[SmartFreeze] ✓ Restarted {} processes", restarted_count);
             }
 
-            // Clear disk state
+            // Clear in-memory and disk state
+            state_guard.clear_frozen();
             if let Err(e) = persistence.save(&PersistentState::new()) {
                 eprintln!("[SmartFreeze] Warning: Failed to clear state: {}", e);
             }
-
-            println!("[SmartFreeze] ✓ Resumed {} processes", resumed_count);
         }
     }
 }

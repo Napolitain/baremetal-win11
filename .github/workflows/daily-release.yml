@@ -1,0 +1,401 @@
+name: Daily CalVer Release
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-and-release:
+    name: Check for Changes and Create Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for tag comparison
+    
+    - name: Check if release needed
+      id: check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { execSync } = require('child_process');
+          
+          // Get latest tag
+          let latestTag = null;
+          try {
+            latestTag = execSync('git tag --sort=-creatordate', { encoding: 'utf-8' }).trim().split('\n')[0];
+          } catch (e) {
+            console.log('No tags found. Will create first release.');
+          }
+          
+          // Check for commits since last tag
+          if (latestTag) {
+            console.log(`Latest tag: ${latestTag}`);
+            const commitCount = execSync(`git rev-list ${latestTag}..HEAD --count`, { encoding: 'utf-8' }).trim();
+            console.log(`Commits since last tag: ${commitCount}`);
+            
+            if (commitCount === '0') {
+              console.log('No commits since last release. Skipping release.');
+              core.setOutput('should_release', 'false');
+              return;
+            }
+          }
+          
+          // Generate CalVer tag: YYYY.MM.DD-n
+          const now = new Date();
+          const date = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')}`;
+          
+          // Check if tag already exists for today
+          let todayTags = [];
+          try {
+            const tags = execSync(`git tag -l "${date}*"`, { encoding: 'utf-8' }).trim();
+            if (tags) {
+              todayTags = tags.split('\n').sort().reverse();
+            }
+          } catch (e) {
+            // No tags for today
+          }
+          
+          let newTag;
+          if (todayTags.length > 0) {
+            const lastTag = todayTags[0];
+            console.log(`Found existing tag for today: ${lastTag}`);
+            
+            const match = lastTag.match(new RegExp(`${date.replace(/\./g, '\\.')}-(\\d+)`));
+            const increment = match ? parseInt(match[1]) + 1 : 1;
+            newTag = `${date}-${increment}`;
+          } else {
+            newTag = `${date}-0`;
+          }
+          
+          console.log(`New release tag: ${newTag}`);
+          core.setOutput('should_release', 'true');
+          core.setOutput('release_tag', newTag);
+    
+    - name: Install Rust toolchain
+      if: steps.check.outputs.should_release == 'true'
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Build release binary
+      if: steps.check.outputs.should_release == 'true'
+      run: cargo build --release --verbose
+    
+    - name: Run tests
+      if: steps.check.outputs.should_release == 'true'
+      run: cargo test --release --verbose
+    
+    - name: Create release archive and checksums
+      if: steps.check.outputs.should_release == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          const { execSync } = require('child_process');
+          const crypto = require('crypto');
+          
+          const version = '${{ steps.check.outputs.release_tag }}';
+          const archiveName = `smart-freeze-${version}-windows-x64.zip`;
+          
+          // Create ZIP archive using PowerShell (required for Windows)
+          const files = [
+            'target/release/smart-freeze.exe',
+            'README.md',
+            'LICENSE'
+          ];
+          
+          console.log(`Creating archive: ${archiveName}`);
+          const fileList = files.join(', ');
+          execSync(`powershell -Command "Compress-Archive -Path ${fileList} -DestinationPath ${archiveName} -Force"`, { stdio: 'inherit' });
+          
+          // Generate SHA256 checksum
+          console.log('Generating SHA256 checksum...');
+          const fileBuffer = fs.readFileSync(archiveName);
+          const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex').toUpperCase();
+          
+          console.log(`SHA256: ${hash}`);
+          fs.writeFileSync(`${archiveName}.sha256`, hash, 'utf8');
+          
+          // Set environment variable for next steps
+          core.exportVariable('ARCHIVE_NAME', archiveName);
+          console.log(`✓ Archive created: ${archiveName}`);
+    
+    - name: Create and push tag
+      if: steps.check.outputs.should_release == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { execSync } = require('child_process');
+          const tag = '${{ steps.check.outputs.release_tag }}';
+          
+          execSync('git config user.name "github-actions[bot]"');
+          execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
+          execSync(`git tag -a "${tag}" -m "Automated daily release ${tag}"`);
+          execSync(`git push origin "${tag}"`);
+    
+    - name: Create GitHub Release
+      if: steps.check.outputs.should_release == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.check.outputs.release_tag }}
+        name: Release ${{ steps.check.outputs.release_tag }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        body: |
+          Automated daily release using CalVer (YYYY.MM.DD-n format)
+          
+          ## Installation
+          
+          ### Via Scoop
+          ```powershell
+          scoop bucket add napolitain https://github.com/Napolitain/scoop
+          scoop install baremetal-gaming
+          ```
+          
+          ### Manual
+          1. Download `smart-freeze-${{ steps.check.outputs.release_tag }}-windows-x64.zip`
+          2. Verify checksum with `.sha256` file
+          3. Extract and run `smart-freeze.exe`
+          
+          ## What's Changed
+          See below for all commits since the last release.
+        files: |
+          ${{ env.ARCHIVE_NAME }}
+          ${{ env.ARCHIVE_NAME }}.sha256
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Create Scoop manifest PR
+      if: steps.check.outputs.should_release == 'true'
+      uses: actions/github-script@v7
+      env:
+        PAT_TOKEN: ${{ secrets.SCOOP_TOKEN }}
+      with:
+        github-token: ${{ secrets.SCOOP_TOKEN || secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const crypto = require('crypto');
+          
+          const version = '${{ steps.check.outputs.release_tag }}';
+          const archiveName = process.env.ARCHIVE_NAME;
+          const repo = context.repo;
+          
+          // Read the archive and calculate SHA256
+          const archiveBuffer = fs.readFileSync(archiveName);
+          const hash = crypto.createHash('sha256').update(archiveBuffer).digest('hex');
+          
+          console.log(`Archive: ${archiveName}`);
+          console.log(`SHA256: ${hash}`);
+          
+          const downloadUrl = `https://github.com/${repo.owner}/${repo.repo}/releases/download/${version}/${archiveName}`;
+          
+          // Create Scoop manifest
+          const manifest = {
+            version: version,
+            description: "Smart process freezer for Windows that terminates heavy background apps during gaming",
+            homepage: `https://github.com/${repo.owner}/${repo.repo}`,
+            license: "MIT",
+            url: downloadUrl,
+            hash: hash,
+            extract_dir: "",
+            bin: "smart-freeze.exe",
+            shortcuts: [
+              ["smart-freeze.exe", "SmartFreeze"]
+            ],
+            checkver: {
+              github: `https://github.com/${repo.owner}/${repo.repo}`,
+              regex: "tag/([\\d.\\-]+)"
+            },
+            autoupdate: {
+              url: `https://github.com/${repo.owner}/${repo.repo}/releases/download/$version/smart-freeze-$version-windows-x64.zip`,
+              hash: {
+                url: "$url.sha256"
+              }
+            },
+            notes: [
+              "Run 'smart-freeze --daemon' to start background service with system tray",
+              "Run 'smart-freeze --install-startup' to auto-start on Windows boot"
+            ]
+          };
+          
+          const manifestJson = JSON.stringify(manifest, null, 2);
+          console.log('Generated manifest:');
+          console.log(manifestJson);
+          
+          // Scoop bucket configuration
+          const bucketOwner = 'Napolitain';
+          const bucketRepo = 'scoop';
+          const manifestPath = 'bucket/baremetal-gaming.json';
+          const branchName = `update-baremetal-gaming-${version}`;
+          
+          // Check if PAT is available for cross-repo PR
+          if (!process.env.PAT_TOKEN) {
+            console.log('⚠️  SCOOP_TOKEN not configured. Cannot create PR to another repository.');
+            console.log('💡 To enable automatic Scoop PRs:');
+            console.log('   1. Create PAT with "Contents" and "Pull requests" permissions');
+            console.log('   2. Add as SCOOP_TOKEN secret in repository settings');
+            console.log('');
+            console.log('📝 Manifest to manually add to Napolitain/scoop:');
+            console.log(manifestJson);
+            return;
+          }
+          
+          try {
+            // Get default branch
+            const { data: repoData } = await github.rest.repos.get({
+              owner: bucketOwner,
+              repo: bucketRepo
+            });
+            const defaultBranch = repoData.default_branch;
+            console.log(`Default branch: ${defaultBranch}`);
+            
+            // Get the latest commit SHA of the default branch
+            const { data: refData } = await github.rest.git.getRef({
+              owner: bucketOwner,
+              repo: bucketRepo,
+              ref: `heads/${defaultBranch}`
+            });
+            const baseSha = refData.object.sha;
+            console.log(`Base SHA: ${baseSha}`);
+            
+            // Create a new branch
+            try {
+              await github.rest.git.createRef({
+                owner: bucketOwner,
+                repo: bucketRepo,
+                ref: `refs/heads/${branchName}`,
+                sha: baseSha
+              });
+              console.log(`✓ Created branch: ${branchName}`);
+            } catch (e) {
+              if (e.message.includes('Reference already exists')) {
+                console.log(`Branch ${branchName} already exists, will update it`);
+              } else {
+                throw e;
+              }
+            }
+            
+            // Check if manifest file exists
+            let fileSha = null;
+            let isUpdate = false;
+            try {
+              const { data: fileData } = await github.rest.repos.getContent({
+                owner: bucketOwner,
+                repo: bucketRepo,
+                path: manifestPath,
+                ref: defaultBranch
+              });
+              fileSha = fileData.sha;
+              isUpdate = true;
+              console.log(`Found existing manifest, SHA: ${fileSha}`);
+            } catch (e) {
+              console.log('Manifest does not exist yet, will create new file');
+            }
+            
+            // Create or update the file in the new branch
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: bucketOwner,
+              repo: bucketRepo,
+              path: manifestPath,
+              message: `baremetal-gaming: ${isUpdate ? 'Update' : 'Add'} version ${version}`,
+              content: Buffer.from(manifestJson).toString('base64'),
+              branch: branchName,
+              sha: fileSha
+            });
+            console.log(`✓ ${isUpdate ? 'Updated' : 'Created'} manifest in branch ${branchName}`);
+            
+            // Create pull request
+            const prTitle = `baremetal-gaming: ${isUpdate ? 'Update' : 'Add'} version ${version}`;
+            const prBody = `## 🤖 Automated Scoop Manifest ${isUpdate ? 'Update' : 'Addition'}
+
+**Package:** baremetal-gaming
+**Version:** ${version}
+**Source:** ${repo.owner}/${repo.repo}
+
+### Changes
+- ${isUpdate ? `Updated` : `Added`} \`${manifestPath}\`
+- Version: ${version}
+- SHA256: \`${hash}\`
+- Download URL: ${downloadUrl}
+
+### Verification
+\`\`\`powershell
+# Install and test
+scoop install ${manifestPath.replace('bucket/', '')}
+smart-freeze --version
+
+# Should output version info
+\`\`\`
+
+### Release Notes
+${downloadUrl.replace('/download/', '/tag/')}
+
+---
+*This PR was automatically generated by the [Daily CalVer Release workflow](https://github.com/${repo.owner}/${repo.repo}/actions/workflows/daily-release.yml)*`;
+            
+            try {
+              const { data: pr } = await github.rest.pulls.create({
+                owner: bucketOwner,
+                repo: bucketRepo,
+                title: prTitle,
+                head: branchName,
+                base: defaultBranch,
+                body: prBody
+              });
+              
+              console.log(`✓ Created pull request: ${pr.html_url}`);
+              console.log(`  PR #${pr.number}: ${prTitle}`);
+              
+              // Add labels if they exist
+              try {
+                await github.rest.issues.addLabels({
+                  owner: bucketOwner,
+                  repo: bucketRepo,
+                  issue_number: pr.number,
+                  labels: ['automated', 'manifest-update']
+                });
+                console.log(`✓ Added labels to PR`);
+              } catch (e) {
+                console.log(`ℹ️  Could not add labels (may not exist): ${e.message}`);
+              }
+              
+            } catch (e) {
+              if (e.message.includes('A pull request already exists')) {
+                console.log(`ℹ️  Pull request already exists for branch ${branchName}`);
+                
+                // Find and update existing PR
+                const { data: prs } = await github.rest.pulls.list({
+                  owner: bucketOwner,
+                  repo: bucketRepo,
+                  head: `${bucketOwner}:${branchName}`,
+                  state: 'open'
+                });
+                
+                if (prs.length > 0) {
+                  const existingPr = prs[0];
+                  console.log(`✓ Found existing PR: ${existingPr.html_url}`);
+                }
+              } else {
+                throw e;
+              }
+            }
+            
+          } catch (error) {
+            console.error('✗ Failed to create Scoop manifest PR:');
+            console.error(error.message);
+            console.log('');
+            console.log('📝 Manifest for manual PR:');
+            console.log(manifestJson);
+            // Don't fail the workflow if Scoop PR fails
+          }
