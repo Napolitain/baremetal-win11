@@ -5,7 +5,9 @@ use clap::Parser;
 /// CLI arguments
 #[derive(Parser, Debug)]
 #[command(name = "smart-freeze")]
-#[command(about = "Smart freeze engine for Windows 11 - intelligently identify heavy but safe-to-freeze applications")]
+#[command(
+    about = "Smart freeze engine for Windows 11 - intelligently identify heavy but safe-to-freeze applications"
+)]
 pub struct Args {
     /// Memory threshold in MB for considering a process "heavy"
     #[arg(short, long, default_value_t = 100)]

@@ -2,9 +2,8 @@
 
 use crate::freeze_engine::ProcessController;
 use crate::{Result, SmartFreezeError};
-use std::mem;
 use std::process::Command;
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, TerminateProcess, PROCESS_QUERY_INFORMATION, PROCESS_TERMINATE,
 };
@@ -20,9 +19,7 @@ impl WindowsProcessController {
     /// Restart a process from its executable path
     pub fn restart_process(&self, exe_path: &str) -> Result<u32> {
         // Start the process detached (no window, background)
-        match Command::new(exe_path)
-            .spawn()
-        {
+        match Command::new(exe_path).spawn() {
             Ok(child) => Ok(child.id()),
             Err(e) => Err(SmartFreezeError::ResumeFailed {
                 pid: 0,
@@ -35,11 +32,7 @@ impl WindowsProcessController {
     fn freeze_process_internal(&self, pid: u32) -> Result<usize> {
         unsafe {
             // Open process with terminate permission
-            let process_handle = OpenProcess(
-                PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION,
-                0,
-                pid,
-            );
+            let process_handle = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, 0, pid);
 
             if process_handle.is_null() {
                 return Err(SmartFreezeError::FreezeFailed {
@@ -64,7 +57,7 @@ impl WindowsProcessController {
     }
 
     /// Restart a terminated process by launching it again
-    fn resume_process_internal(&self, pid: u32) -> Result<usize> {
+    fn resume_process_internal(&self, _pid: u32) -> Result<usize> {
         // Note: We can't actually restart by PID since the process is gone
         // Resume will need the executable path from persistence
         // For now, just return Ok to indicate the "resume" was attempted

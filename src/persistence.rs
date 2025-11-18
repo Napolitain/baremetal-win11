@@ -23,7 +23,7 @@ impl FrozenProcess {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         Self {
             pid,
             name,
@@ -38,7 +38,7 @@ impl FrozenProcess {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         now - self.timestamp > MAX_STATE_AGE_SECS
     }
 }
@@ -61,7 +61,8 @@ impl PersistentState {
     }
 
     pub fn add(&mut self, pid: u32, name: String, exe_path: String) {
-        self.frozen_processes.push(FrozenProcess::new(pid, name, exe_path));
+        self.frozen_processes
+            .push(FrozenProcess::new(pid, name, exe_path));
     }
 
     pub fn remove(&mut self, pid: u32) {
@@ -146,9 +147,10 @@ mod tests {
 
     #[test]
     fn test_frozen_process_creation() {
-        let process = FrozenProcess::new(1234, "test.exe".to_string());
+        let process = FrozenProcess::new(1234, "test.exe".to_string(), "C:\\test.exe".to_string());
         assert_eq!(process.pid, 1234);
         assert_eq!(process.name, "test.exe");
+        assert_eq!(process.exe_path, "C:\\test.exe");
         assert!(process.timestamp > 0);
         assert!(!process.is_stale());
     }
@@ -156,9 +158,9 @@ mod tests {
     #[test]
     fn test_frozen_process_stale_detection() {
         // Create a process with old timestamp
-        let mut process = FrozenProcess::new(1234, "test.exe".to_string());
+        let mut process = FrozenProcess::new(1234, "test.exe".to_string(), "C:\\test.exe".to_string());
         process.timestamp = 0; // Very old timestamp
-        
+
         assert!(process.is_stale());
     }
 
@@ -167,11 +169,11 @@ mod tests {
         let mut state = PersistentState::new();
         assert!(state.is_empty());
 
-        state.add(1234, "test.exe".to_string());
+        state.add(1234, "test.exe".to_string(), "C:\\test.exe".to_string());
         assert!(!state.is_empty());
         assert_eq!(state.frozen_processes.len(), 1);
 
-        state.add(5678, "another.exe".to_string());
+        state.add(5678, "another.exe".to_string(), "C:\\another.exe".to_string());
         assert_eq!(state.frozen_processes.len(), 2);
 
         state.remove(1234);
@@ -185,12 +187,12 @@ mod tests {
     #[test]
     fn test_persistent_state_valid_processes() {
         let mut state = PersistentState::new();
-        
+
         // Add fresh process
-        state.add(1234, "fresh.exe".to_string());
-        
+        state.add(1234, "fresh.exe".to_string(), "C:\\fresh.exe".to_string());
+
         // Add stale process
-        let mut stale = FrozenProcess::new(5678, "stale.exe".to_string());
+        let mut stale = FrozenProcess::new(5678, "stale.exe".to_string(), "C:\\stale.exe".to_string());
         stale.timestamp = 0;
         state.frozen_processes.push(stale);
 
@@ -209,8 +211,8 @@ mod tests {
 
         // Create and save state
         let mut state = PersistentState::new();
-        state.add(1234, "test.exe".to_string());
-        state.add(5678, "another.exe".to_string());
+        state.add(1234, "test.exe".to_string(), "C:\\test.exe".to_string());
+        state.add(5678, "another.exe".to_string(), "C:\\another.exe".to_string());
 
         persistence.save(&state).unwrap();
 

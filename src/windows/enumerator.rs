@@ -2,7 +2,7 @@
 
 use crate::categorization::{DefaultCategorizer, ProcessCategorizer};
 use crate::freeze_engine::ProcessEnumerator;
-use crate::process::{ProcessCategory, ProcessInfo};
+use crate::process::ProcessInfo;
 use crate::{Result, SmartFreezeError};
 use std::collections::HashMap;
 use std::mem;
@@ -33,11 +33,7 @@ impl WindowsProcessEnumerator {
     /// Get process name and path
     fn get_process_info(&self, pid: u32) -> (String, String) {
         unsafe {
-            let process_handle = OpenProcess(
-                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                0,
-                pid,
-            );
+            let process_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid);
 
             if process_handle.is_null() {
                 return (String::new(), String::new());
@@ -46,7 +42,13 @@ impl WindowsProcessEnumerator {
             let mut path_buffer: [u16; 260] = [0; 260];
             let mut path_len = path_buffer.len() as u32;
 
-            if QueryFullProcessImageNameW(process_handle, 0, path_buffer.as_mut_ptr(), &mut path_len) != 0 {
+            if QueryFullProcessImageNameW(
+                process_handle,
+                0,
+                path_buffer.as_mut_ptr(),
+                &mut path_len,
+            ) != 0
+            {
                 let full_path = String::from_utf16_lossy(&path_buffer[..path_len as usize]);
                 let name = full_path
                     .rsplit('\\')
@@ -66,11 +68,7 @@ impl WindowsProcessEnumerator {
     /// Get process memory usage in MB
     fn get_memory_usage(&self, pid: u32) -> u64 {
         unsafe {
-            let process_handle = OpenProcess(
-                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-                0,
-                pid,
-            );
+            let process_handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid);
 
             if process_handle.is_null() {
                 return 0;
@@ -142,7 +140,7 @@ impl ProcessEnumerator for WindowsProcessEnumerator {
 
                     if pid != 0 {
                         let (name, full_path) = self.get_process_info(pid);
-                        
+
                         if !name.is_empty() {
                             let memory_mb = self.get_memory_usage(pid);
                             let is_foreground = foreground_pid == Some(pid);
@@ -190,15 +188,15 @@ mod tests {
     fn test_enumerate_processes() {
         let mut enumerator = WindowsProcessEnumerator::new();
         let result = enumerator.enumerate();
-        
+
         assert!(result.is_ok());
         let processes = result.unwrap();
         assert!(!processes.is_empty()); // Should have at least some processes
-        
+
         // Check that we have explorer.exe (should always be running)
-        let has_explorer = processes.iter().any(|p| {
-            p.name.eq_ignore_ascii_case("explorer.exe")
-        });
+        let has_explorer = processes
+            .iter()
+            .any(|p| p.name.eq_ignore_ascii_case("explorer.exe"));
         assert!(has_explorer, "Explorer.exe should be running");
     }
 
@@ -207,7 +205,7 @@ mod tests {
     fn test_foreground_pid() {
         let enumerator = WindowsProcessEnumerator::new();
         let foreground = enumerator.get_foreground_pid();
-        
+
         // Should have a foreground process (this test itself)
         assert!(foreground.is_some());
     }

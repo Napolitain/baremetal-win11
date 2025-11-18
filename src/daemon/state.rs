@@ -70,7 +70,7 @@ mod tests {
         let mut state = DaemonState::new();
         state.add_frozen(1234);
         state.add_frozen(5678);
-        
+
         let pids = state.clear_frozen();
         assert_eq!(pids.len(), 2);
         assert!(state.frozen_pids.is_empty());
@@ -80,10 +80,10 @@ mod tests {
     fn test_toggle_enabled() {
         let mut state = DaemonState::new();
         assert!(state.is_enabled());
-        
+
         state.toggle_enabled();
         assert!(!state.is_enabled());
-        
+
         state.toggle_enabled();
         assert!(state.is_enabled());
     }

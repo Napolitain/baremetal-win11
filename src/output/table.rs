@@ -1,8 +1,8 @@
 //! Table output formatting
 
 use crate::cli::Args;
-use crate::process::{ProcessCategory, ProcessInfo};
 use crate::output::OutputFormatter;
+use crate::process::{ProcessCategory, ProcessInfo};
 
 pub struct TableFormatter;
 
@@ -19,9 +19,16 @@ impl OutputFormatter for TableFormatter {
 
         // Display processes that would be frozen
         if !processes.is_empty() {
-            println!("❄️  WOULD FREEZE ({} processes, >{} MB):", processes.len(), args.threshold);
+            println!(
+                "❄️  WOULD FREEZE ({} processes, >{} MB):",
+                processes.len(),
+                args.threshold
+            );
             println!("{}", "=".repeat(70));
-            println!("{:<8} {:<40} {:>12} {:<10}", "PID", "Name", "Memory (MB)", "Category");
+            println!(
+                "{:<8} {:<40} {:>12} {:<10}",
+                "PID", "Name", "Memory (MB)", "Category"
+            );
             println!("{}", "-".repeat(70));
 
             for process in processes {
@@ -54,7 +61,10 @@ mod tests {
     #[test]
     fn test_category_to_str() {
         let formatter = TableFormatter;
-        assert_eq!(formatter.category_to_str(ProcessCategory::Critical), "Critical");
+        assert_eq!(
+            formatter.category_to_str(ProcessCategory::Critical),
+            "Critical"
+        );
         assert_eq!(formatter.category_to_str(ProcessCategory::Gaming), "Gaming");
     }
 
@@ -75,7 +85,7 @@ mod tests {
             interval: 60,
             keep_communication: false,
         };
-        
+
         // Should not panic
         formatter.format_processes(&[], &args);
     }

@@ -1,10 +1,9 @@
 //! SmartFreeze - Main entry point
 
 use clap::Parser;
-use smart_freeze::cli::{Action, Args};
 use smart_freeze::categorization::DefaultCategorizer;
+use smart_freeze::cli::{Action, Args};
 use smart_freeze::freeze_engine::{FreezeConfig, FreezeEngine};
-use smart_freeze::persistence::FileStatePersistence;
 
 #[cfg(windows)]
 use smart_freeze::windows::{WindowsProcessController, WindowsProcessEnumerator, WindowsRegistry};
@@ -30,10 +29,17 @@ fn main() {
             println!("Starting SmartFreeze in daemon mode...");
             println!("Check interval: {} seconds", args.interval);
             println!("Memory threshold: {} MB", args.threshold);
-            println!("Keep communication apps: {}", if args.keep_communication { "Yes" } else { "No" });
+            println!(
+                "Keep communication apps: {}",
+                if args.keep_communication { "Yes" } else { "No" }
+            );
             println!("System tray icon should appear in taskbar\n");
-            
-            smart_freeze::daemon::run_daemon(args.interval, args.threshold, args.keep_communication);
+
+            smart_freeze::daemon::run_daemon(
+                args.interval,
+                args.threshold,
+                args.keep_communication,
+            );
             return;
         }
 
@@ -60,7 +66,7 @@ fn main() {
 }
 
 #[cfg(windows)]
-fn handle_install_startup(args: &Args) {
+fn handle_install_startup(_args: &Args) {
     let registry = WindowsRegistry::new();
     let exe_path = std::env::current_exe()
         .expect("Failed to get executable path")
@@ -83,7 +89,7 @@ fn handle_install_startup(args: &Args) {
 #[cfg(windows)]
 fn handle_uninstall_startup() {
     let registry = WindowsRegistry::new();
-    
+
     match registry.uninstall_startup() {
         Ok(()) => {
             println!("✓ SmartFreeze removed from Windows startup");
@@ -98,32 +104,28 @@ fn handle_uninstall_startup() {
 #[cfg(windows)]
 fn handle_action(action: Action, pid: u32) {
     use smart_freeze::freeze_engine::ProcessController;
-    
+
     let controller = WindowsProcessController::new();
-    
+
     match action {
-        Action::Freeze => {
-            match controller.freeze(pid) {
-                Ok(count) => {
-                    println!("✓ Froze process {} ({} threads suspended)", pid, count);
-                }
-                Err(e) => {
-                    eprintln!("✗ Failed to freeze process {}: {}", pid, e);
-                    std::process::exit(1);
-                }
+        Action::Freeze => match controller.freeze(pid) {
+            Ok(count) => {
+                println!("✓ Froze process {} ({} threads suspended)", pid, count);
             }
-        }
-        Action::Resume => {
-            match controller.resume(pid) {
-                Ok(count) => {
-                    println!("✓ Resumed process {} ({} threads resumed)", pid, count);
-                }
-                Err(e) => {
-                    eprintln!("✗ Failed to resume process {}: {}", pid, e);
-                    std::process::exit(1);
-                }
+            Err(e) => {
+                eprintln!("✗ Failed to freeze process {}: {}", pid, e);
+                std::process::exit(1);
             }
-        }
+        },
+        Action::Resume => match controller.resume(pid) {
+            Ok(count) => {
+                println!("✓ Resumed process {} ({} threads resumed)", pid, count);
+            }
+            Err(e) => {
+                eprintln!("✗ Failed to resume process {}: {}", pid, e);
+                std::process::exit(1);
+            }
+        },
     }
 }
 
@@ -133,7 +135,7 @@ fn run_output_mode(args: &Args) {
     let enumerator = WindowsProcessEnumerator::new();
     let controller = WindowsProcessController::new();
     let categorizer = DefaultCategorizer::new();
-    
+
     let config = FreezeConfig {
         min_memory_mb: args.threshold,
         keep_communication: args.keep_communication,
@@ -145,12 +147,14 @@ fn run_output_mode(args: &Args) {
     match engine.find_safe_to_freeze() {
         Ok(safe_processes) => {
             // Use output formatter
-            use smart_freeze::output::{TableFormatter, JsonFormatter, CsvFormatter, OutputFormatter};
-            
+            use smart_freeze::output::{
+                CsvFormatter, JsonFormatter, OutputFormatter, TableFormatter,
+            };
+
             match args.format {
                 smart_freeze::cli::OutputFormat::Table => {
-                    let formatter = TableFormatter;
-                    
+                    let _formatter = TableFormatter;
+
                     // Enhanced table output with protected processes
                     println!("Smart Freeze Engine - Dry Run Mode");
                     println!("===================================\n");
@@ -162,15 +166,25 @@ fn run_output_mode(args: &Args) {
                     println!("🎯 DRY RUN - Showing what would happen in daemon mode:\n");
 
                     if !safe_processes.is_empty() {
-                        println!("❄️  WOULD FREEZE ({} processes, >{} MB):", safe_processes.len(), args.threshold);
+                        println!(
+                            "❄️  WOULD FREEZE ({} processes, >{} MB):",
+                            safe_processes.len(),
+                            args.threshold
+                        );
                         println!("{}", "=".repeat(70));
-                        println!("{:<8} {:<40} {:>12} {:<10}", "PID", "Name", "Memory (MB)", "Category");
+                        println!(
+                            "{:<8} {:<40} {:>12} {:<10}",
+                            "PID", "Name", "Memory (MB)", "Category"
+                        );
                         println!("{}", "-".repeat(70));
 
                         for process in &safe_processes {
                             println!(
                                 "{:<8} {:<40} {:>12} {:<10}",
-                                process.pid, process.name, process.memory_mb, process.category.as_str()
+                                process.pid,
+                                process.name,
+                                process.memory_mb,
+                                process.category.as_str()
                             );
                         }
 
@@ -185,12 +199,12 @@ fn run_output_mode(args: &Args) {
                     // Show protected processes
                     if let Ok(all_processes) = engine.enumerate_processes() {
                         use smart_freeze::process::ProcessCategory;
-                        
+
                         let protected: Vec<_> = all_processes
                             .iter()
                             .filter(|p| {
-                                p.is_foreground 
-                                    || p.category == ProcessCategory::Critical 
+                                p.is_foreground
+                                    || p.category == ProcessCategory::Critical
                                     || p.category == ProcessCategory::Gaming
                             })
                             .collect();
@@ -198,7 +212,10 @@ fn run_output_mode(args: &Args) {
                         if !protected.is_empty() {
                             println!("\n\n🛡️  PROTECTED (will NOT freeze):");
                             println!("{}", "=".repeat(70));
-                            println!("{:<8} {:<40} {:>12} {:<10}", "PID", "Name", "Memory (MB)", "Reason");
+                            println!(
+                                "{:<8} {:<40} {:>12} {:<10}",
+                                "PID", "Name", "Memory (MB)", "Reason"
+                            );
                             println!("{}", "-".repeat(70));
 
                             for process in protected.iter().take(20) {
@@ -219,7 +236,10 @@ fn run_output_mode(args: &Args) {
                             }
 
                             if protected.len() > 20 {
-                                println!("   ... and {} more protected processes", protected.len() - 20);
+                                println!(
+                                    "   ... and {} more protected processes",
+                                    protected.len() - 20
+                                );
                             }
 
                             println!(

@@ -1,12 +1,12 @@
 //! Output formatting for different formats
 
-mod table;
-mod json;
 mod csv;
+mod json;
+mod table;
 
-pub use table::TableFormatter;
-pub use json::JsonFormatter;
 pub use csv::CsvFormatter;
+pub use json::JsonFormatter;
+pub use table::TableFormatter;
 
 use crate::cli::{Args, OutputFormat};
 use crate::freeze_engine::FreezeEngine;

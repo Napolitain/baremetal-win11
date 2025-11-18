@@ -1,8 +1,8 @@
 //! JSON output formatting
 
 use crate::cli::Args;
-use crate::process::ProcessInfo;
 use crate::output::OutputFormatter;
+use crate::process::ProcessInfo;
 use serde_json::json;
 
 pub struct JsonFormatter;
@@ -15,7 +15,7 @@ impl OutputFormatter for JsonFormatter {
             "total_memory_mb": processes.iter().map(|p| p.memory_mb).sum::<u64>(),
             "processes": processes,
         });
-        
+
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     }
 }
@@ -28,17 +28,15 @@ mod tests {
     #[test]
     fn test_json_output() {
         let formatter = JsonFormatter;
-        let processes = vec![
-            ProcessInfo::new(
-                1234,
-                "test.exe".to_string(),
-                "C:\\test.exe".to_string(),
-                200,
-                false,
-                ProcessCategory::Productivity,
-            ),
-        ];
-        
+        let processes = vec![ProcessInfo::new(
+            1234,
+            "test.exe".to_string(),
+            "C:\\test.exe".to_string(),
+            200,
+            false,
+            ProcessCategory::Productivity,
+        )];
+
         let args = Args {
             threshold: 100,
             format: crate::cli::OutputFormat::Json,
@@ -53,7 +51,7 @@ mod tests {
             interval: 60,
             keep_communication: false,
         };
-        
+
         // Should not panic
         formatter.format_processes(&processes, &args);
     }

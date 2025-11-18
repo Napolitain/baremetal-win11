@@ -104,7 +104,10 @@ pub fn run_system_tray(state: Arc<Mutex<DaemonState>>) -> Result<(), Box<dyn std
                 if let Ok(Some(saved_state)) = persistence.load() {
                     let valid = saved_state.get_valid_processes();
                     if !valid.is_empty() {
-                        println!("[SmartFreeze] Restarting {} terminated processes...", valid.len());
+                        println!(
+                            "[SmartFreeze] Restarting {} terminated processes...",
+                            valid.len()
+                        );
                         let controller = crate::windows::WindowsProcessController::new();
 
                         for frozen in valid {
@@ -139,7 +142,7 @@ fn create_icon_data() -> Vec<u8> {
     let mut rgba = Vec::with_capacity(32 * 32 * 4);
     for _ in 0..32 {
         for _ in 0..32 {
-            rgba.push(64);  // R
+            rgba.push(64); // R
             rgba.push(128); // G
             rgba.push(255); // B
             rgba.push(255); // A

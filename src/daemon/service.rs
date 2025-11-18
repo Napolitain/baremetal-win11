@@ -3,7 +3,7 @@
 use super::state::DaemonState;
 use super::tray::run_system_tray;
 use crate::categorization::DefaultCategorizer;
-use crate::freeze_engine::{FreezeConfig, FreezeEngine, ProcessController};
+use crate::freeze_engine::{FreezeConfig, FreezeEngine};
 use crate::persistence::{FileStatePersistence, PersistentState, StatePersistence};
 use crate::windows::{WindowsProcessController, WindowsProcessEnumerator};
 use std::sync::{Arc, Mutex};
@@ -56,10 +56,7 @@ fn recover_from_crash(persistence: &FileStatePersistence) {
                         restarted += 1;
                     }
                     Err(_) => {
-                        eprintln!(
-                            "[SmartFreeze] ✗ Failed to restart {}",
-                            frozen.name
-                        );
+                        eprintln!("[SmartFreeze] ✗ Failed to restart {}", frozen.name);
                         failed += 1;
                     }
                 }
@@ -129,7 +126,11 @@ fn monitor_loop(
                     match engine.freeze_process(process.pid) {
                         Ok(_) => {
                             state_guard.add_frozen(process.pid);
-                            persistent_state.add(process.pid, process.name.clone(), process.full_path.clone());
+                            persistent_state.add(
+                                process.pid,
+                                process.name.clone(),
+                                process.full_path.clone(),
+                            );
                             total_memory += process.memory_mb;
                             frozen_count += 1;
                             println!(
@@ -178,10 +179,7 @@ fn monitor_loop(
                             restarted_count += 1;
                         }
                         Err(e) => {
-                            eprintln!(
-                                "[SmartFreeze]   ✗ Failed to restart {}: {}",
-                                frozen.name, e
-                            );
+                            eprintln!("[SmartFreeze]   ✗ Failed to restart {}: {}", frozen.name, e);
                         }
                     }
                 }

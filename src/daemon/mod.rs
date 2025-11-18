@@ -1,7 +1,7 @@
 //! Daemon mode - automatic process freezing when gaming
 
-mod state;
 mod service;
+mod state;
 mod tray;
 
 pub use service::run_daemon;

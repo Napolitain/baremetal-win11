@@ -1,13 +1,13 @@
 //! CSV output formatting
 
 use crate::cli::Args;
-use crate::process::ProcessInfo;
 use crate::output::OutputFormatter;
+use crate::process::ProcessInfo;
 
 pub struct CsvFormatter;
 
 impl OutputFormatter for CsvFormatter {
-    fn format_processes(&self, processes: &[ProcessInfo], args: &Args) {
+    fn format_processes(&self, processes: &[ProcessInfo], _args: &Args) {
         println!("PID,Name,MemoryMB,Category,Foreground,FullPath");
         for process in processes {
             println!(
@@ -31,17 +31,15 @@ mod tests {
     #[test]
     fn test_csv_output() {
         let formatter = CsvFormatter;
-        let processes = vec![
-            ProcessInfo::new(
-                1234,
-                "test.exe".to_string(),
-                "C:\\test.exe".to_string(),
-                200,
-                false,
-                ProcessCategory::Productivity,
-            ),
-        ];
-        
+        let processes = vec![ProcessInfo::new(
+            1234,
+            "test.exe".to_string(),
+            "C:\\test.exe".to_string(),
+            200,
+            false,
+            ProcessCategory::Productivity,
+        )];
+
         let args = Args {
             threshold: 100,
             format: crate::cli::OutputFormat::Csv,
@@ -56,7 +54,7 @@ mod tests {
             interval: 60,
             keep_communication: false,
         };
-        
+
         // Should not panic
         formatter.format_processes(&processes, &args);
     }

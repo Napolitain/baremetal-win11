@@ -94,7 +94,7 @@ mod tests {
             false,
             ProcessCategory::Critical,
         );
-        
+
         assert!(!process.is_safe_to_freeze(false));
         assert!(!process.is_safe_to_freeze(true));
     }
@@ -109,7 +109,7 @@ mod tests {
             true, // foreground
             ProcessCategory::Productivity,
         );
-        
+
         assert!(!process.is_safe_to_freeze(false));
     }
 
@@ -123,7 +123,7 @@ mod tests {
             false,
             ProcessCategory::Communication,
         );
-        
+
         assert!(process.is_safe_to_freeze(false)); // Can freeze if flag not set
         assert!(!process.is_safe_to_freeze(true)); // Protected when flag set
     }
@@ -138,7 +138,7 @@ mod tests {
             false,
             ProcessCategory::BackgroundService,
         );
-        
+
         assert!(process.is_safe_to_freeze(false));
         assert!(process.is_safe_to_freeze(true));
     }

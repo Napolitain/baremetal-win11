@@ -43,6 +43,7 @@ where
 {
     enumerator: E,
     controller: C,
+    #[allow(dead_code)]
     categorizer: Cat,
     config: FreezeConfig,
 }
@@ -53,12 +54,7 @@ where
     C: ProcessController,
     Cat: ProcessCategorizer,
 {
-    pub fn new(
-        enumerator: E,
-        controller: C,
-        categorizer: Cat,
-        config: FreezeConfig,
-    ) -> Self {
+    pub fn new(enumerator: E, controller: C, categorizer: Cat, config: FreezeConfig) -> Self {
         Self {
             enumerator,
             controller,
@@ -80,7 +76,7 @@ where
     /// Find processes that are safe to freeze
     pub fn find_safe_to_freeze(&mut self) -> Result<Vec<ProcessInfo>> {
         let processes = self.enumerator.enumerate()?;
-        
+
         Ok(processes
             .into_iter()
             .filter(|p| {
@@ -93,7 +89,7 @@ where
     /// Find all gaming processes
     pub fn find_gaming_processes(&mut self) -> Result<Vec<ProcessInfo>> {
         let processes = self.enumerator.enumerate()?;
-        
+
         Ok(processes
             .into_iter()
             .filter(|p| p.category == ProcessCategory::Gaming)
@@ -235,8 +231,20 @@ mod tests {
     #[test]
     fn test_find_safe_to_freeze_excludes_foreground() {
         let processes = vec![
-            create_test_process(1, "foreground.exe", 200, true, ProcessCategory::Productivity),
-            create_test_process(2, "background.exe", 200, false, ProcessCategory::Productivity),
+            create_test_process(
+                1,
+                "foreground.exe",
+                200,
+                true,
+                ProcessCategory::Productivity,
+            ),
+            create_test_process(
+                2,
+                "background.exe",
+                200,
+                false,
+                ProcessCategory::Productivity,
+            ),
         ];
 
         let enumerator = MockEnumerator::new(processes, Some(1));
@@ -313,10 +321,10 @@ mod tests {
         let config = FreezeConfig::default();
 
         let engine = FreezeEngine::new(enumerator, controller, categorizer, config);
-        
+
         let results = engine.freeze_multiple(&[1, 2, 3]);
         assert_eq!(results.len(), 3);
-        
+
         for (_pid, result) in results {
             assert!(result.is_ok());
             assert_eq!(result.unwrap(), 1);

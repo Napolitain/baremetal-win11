@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub trait ProcessCategorizer: Send + Sync {
     /// Categorize a process based on its attributes
     fn categorize(&self, pid: u32, name: &str, path: &str) -> ProcessCategory;
-    
+
     /// Check if a process is critical
     fn is_critical(&self, name: &str) -> bool;
 }
@@ -32,7 +32,7 @@ impl DefaultCategorizer {
 
     fn is_gaming_by_name(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        
+
         // Game launchers
         if name_lower.contains("steam")
             || name_lower.contains("epic")
@@ -64,7 +64,7 @@ impl DefaultCategorizer {
 
     fn is_gaming_by_path(&self, path: &str) -> bool {
         let path_lower = path.to_lowercase();
-        
+
         let gaming_paths = [
             "\\steam\\",
             "\\steamapps\\",
@@ -82,16 +82,28 @@ impl DefaultCategorizer {
             "\\my games\\",
         ];
 
-        gaming_paths.iter().any(|&pattern| path_lower.contains(pattern))
+        gaming_paths
+            .iter()
+            .any(|&pattern| path_lower.contains(pattern))
     }
 
     fn is_communication(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        
+
         let communication_apps = [
-            "discord", "slack", "teams", "telegram", "signal", "whatsapp",
-            "zoom", "skype", "mumble", "teamspeak", "ventrilo",
-            "element", "riot",
+            "discord",
+            "slack",
+            "teams",
+            "telegram",
+            "signal",
+            "whatsapp",
+            "zoom",
+            "skype",
+            "mumble",
+            "teamspeak",
+            "ventrilo",
+            "element",
+            "riot",
         ];
 
         communication_apps
@@ -101,11 +113,20 @@ impl DefaultCategorizer {
 
     fn is_background_service(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        
+
         let background_services = [
-            "updater", "update", "helper", "sync", "backup",
-            "nvidia", "amd", "geforce", "radeon",
-            "onedrive", "dropbox", "google drive",
+            "updater",
+            "update",
+            "helper",
+            "sync",
+            "backup",
+            "nvidia",
+            "amd",
+            "geforce",
+            "radeon",
+            "onedrive",
+            "dropbox",
+            "google drive",
             "toolbox",
         ];
 
@@ -116,13 +137,30 @@ impl DefaultCategorizer {
 
     fn is_productivity(&self, name: &str) -> bool {
         let name_lower = name.to_lowercase();
-        
+
         let productivity_apps = [
-            "chrome", "firefox", "edge", "opera", "brave", "vivaldi",
-            "excel", "word", "powerpoint", "outlook", "onenote",
-            "vscode", "code", "pycharm", "intellij", "rider", "sublime",
-            "spotify", "vlc", "itunes",
-            "notion", "obsidian",
+            "chrome",
+            "firefox",
+            "edge",
+            "opera",
+            "brave",
+            "vivaldi",
+            "excel",
+            "word",
+            "powerpoint",
+            "outlook",
+            "onenote",
+            "vscode",
+            "code",
+            "pycharm",
+            "intellij",
+            "rider",
+            "sublime",
+            "spotify",
+            "vlc",
+            "itunes",
+            "notion",
+            "obsidian",
         ];
 
         productivity_apps
@@ -184,9 +222,7 @@ impl ProcessCategorizer for DefaultCategorizer {
             "startmenuexperiencehost.exe",
         ];
 
-        critical
-            .iter()
-            .any(|&c| name.eq_ignore_ascii_case(c))
+        critical.iter().any(|&c| name.eq_ignore_ascii_case(c))
     }
 }
 
@@ -197,7 +233,7 @@ mod tests {
     #[test]
     fn test_critical_process_detection() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert!(categorizer.is_critical("explorer.exe"));
         assert!(categorizer.is_critical("Explorer.EXE"));
         assert!(categorizer.is_critical("textinputhost.exe"));
@@ -207,12 +243,12 @@ mod tests {
     #[test]
     fn test_gaming_detection_by_name() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert_eq!(
             categorizer.categorize(1234, "steam.exe", "C:\\Program Files\\Steam\\steam.exe"),
             ProcessCategory::Gaming
         );
-        
+
         assert_eq!(
             categorizer.categorize(1234, "game.exe", "C:\\Games\\game.exe"),
             ProcessCategory::Gaming
@@ -222,7 +258,7 @@ mod tests {
     #[test]
     fn test_gaming_detection_by_path() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert_eq!(
             categorizer.categorize(
                 1234,
@@ -231,7 +267,7 @@ mod tests {
             ),
             ProcessCategory::Gaming
         );
-        
+
         assert_eq!(
             categorizer.categorize(
                 1234,
@@ -245,12 +281,12 @@ mod tests {
     #[test]
     fn test_communication_detection() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert_eq!(
             categorizer.categorize(1234, "Discord.exe", "C:\\Users\\User\\Discord\\Discord.exe"),
             ProcessCategory::Communication
         );
-        
+
         assert_eq!(
             categorizer.categorize(1234, "Teams.exe", "C:\\Microsoft\\Teams\\Teams.exe"),
             ProcessCategory::Communication
@@ -260,7 +296,7 @@ mod tests {
     #[test]
     fn test_background_service_detection() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert_eq!(
             categorizer.categorize(
                 1234,
@@ -269,7 +305,7 @@ mod tests {
             ),
             ProcessCategory::BackgroundService
         );
-        
+
         assert_eq!(
             categorizer.categorize(
                 1234,
@@ -283,7 +319,7 @@ mod tests {
     #[test]
     fn test_productivity_detection() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert_eq!(
             categorizer.categorize(
                 1234,
@@ -292,7 +328,7 @@ mod tests {
             ),
             ProcessCategory::Productivity
         );
-        
+
         assert_eq!(
             categorizer.categorize(1234, "Code.exe", "C:\\Program Files\\VSCode\\Code.exe"),
             ProcessCategory::Productivity
@@ -302,7 +338,7 @@ mod tests {
     #[test]
     fn test_unknown_process() {
         let categorizer = DefaultCategorizer::new();
-        
+
         assert_eq!(
             categorizer.categorize(1234, "unknown.exe", "C:\\Some\\Path\\unknown.exe"),
             ProcessCategory::Unknown
