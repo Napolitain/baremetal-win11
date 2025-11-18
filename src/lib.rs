@@ -13,6 +13,9 @@ pub mod output;
 #[cfg(windows)]
 pub mod windows;
 
+#[cfg(windows)]
+pub mod daemon;
+
 pub use process::{ProcessInfo, ProcessCategory};
 pub use freeze_engine::FreezeEngine;
 pub use categorization::ProcessCategorizer;

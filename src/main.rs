@@ -31,11 +31,10 @@ fn main() {
             println!("Check interval: {} seconds", args.interval);
             println!("Memory threshold: {} MB", args.threshold);
             println!("Keep communication apps: {}", if args.keep_communication { "Yes" } else { "No" });
-            println!("System tray icon should appear in taskbar");
+            println!("System tray icon should appear in taskbar\n");
             
-            // TODO: Implement daemon mode
-            eprintln!("Daemon mode not yet implemented in refactored version");
-            std::process::exit(1);
+            smart_freeze::daemon::run_daemon(args.interval, args.threshold, args.keep_communication);
+            return;
         }
 
         // Handle manual freeze/resume actions
