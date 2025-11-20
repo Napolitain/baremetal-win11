@@ -191,9 +191,8 @@ jobs:
           const archiveName = process.env.ARCHIVE_NAME;
           const repo = context.repo;
           
-          // Read the archive and calculate SHA256
-          const archiveBuffer = fs.readFileSync(archiveName);
-          const hash = crypto.createHash('sha256').update(archiveBuffer).digest('hex');
+          // Read SHA256 from file (consistent with archive creation step)
+          const hash = fs.readFileSync(`${archiveName}.sha256`, 'utf8').trim();
           
           console.log(`Archive: ${archiveName}`);
           console.log(`SHA256: ${hash}`);

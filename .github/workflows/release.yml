@@ -20,6 +20,7 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+      pull-requests: write
     
     steps:
     - name: Checkout code
@@ -60,8 +61,234 @@ jobs:
         draft: false
         prerelease: false
         generate_release_notes: true
+        body: |
+          ## Installation
+          
+          ### Via Scoop
+          ```powershell
+          scoop bucket add napolitain https://github.com/Napolitain/scoop
+          scoop install baremetal-gaming
+          ```
+          
+          ### Manual
+          1. Download `${{ env.ARCHIVE_NAME }}`
+          2. Verify checksum with `.sha256` file
+          3. Extract and run `smart-freeze.exe`
         files: |
           ${{ env.ARCHIVE_NAME }}
           ${{ env.ARCHIVE_NAME }}.sha256
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Create Scoop manifest PR
+      uses: actions/github-script@v7
+      env:
+        PAT_TOKEN: ${{ secrets.SCOOP_TOKEN }}
+      with:
+        github-token: ${{ secrets.SCOOP_TOKEN || secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const version = '${{ env.VERSION }}'.replace(/^v/, '');
+          const archiveName = '${{ env.ARCHIVE_NAME }}';
+          const repo = context.repo;
+          
+          // Read SHA256 from file
+          const hash = fs.readFileSync(`${archiveName}.sha256`, 'utf8').trim();
+          
+          console.log(`Archive: ${archiveName}`);
+          console.log(`SHA256: ${hash}`);
+          
+          const downloadUrl = `https://github.com/${repo.owner}/${repo.repo}/releases/download/${{ env.VERSION }}/${archiveName}`;
+          
+          // Create Scoop manifest
+          const manifest = {
+            version: version,
+            description: "Smart process freezer for Windows that terminates heavy background apps during gaming",
+            homepage: `https://github.com/${repo.owner}/${repo.repo}`,
+            license: "MIT",
+            url: downloadUrl,
+            hash: hash,
+            extract_dir: "",
+            bin: "smart-freeze.exe",
+            shortcuts: [
+              ["smart-freeze.exe", "SmartFreeze"]
+            ],
+            checkver: {
+              github: `https://github.com/${repo.owner}/${repo.repo}`,
+              regex: "tag/([\\d.\\-]+)"
+            },
+            autoupdate: {
+              url: `https://github.com/${repo.owner}/${repo.repo}/releases/download/$version/smart-freeze-$version-windows-x64.zip`,
+              hash: {
+                url: "$url.sha256"
+              }
+            },
+            notes: [
+              "Run 'smart-freeze --daemon' to start background service with system tray",
+              "Run 'smart-freeze --install-startup' to auto-start on Windows boot"
+            ]
+          };
+          
+          const manifestJson = JSON.stringify(manifest, null, 2);
+          console.log('Generated manifest:');
+          console.log(manifestJson);
+          
+          // Scoop bucket configuration
+          const bucketOwner = 'Napolitain';
+          const bucketRepo = 'scoop';
+          const manifestPath = 'bucket/baremetal-gaming.json';
+          const branchName = `update-baremetal-gaming-${version}`;
+          
+          // Check if PAT is available
+          if (!process.env.PAT_TOKEN) {
+            console.log('⚠️  SCOOP_TOKEN not configured. Cannot create PR to another repository.');
+            console.log('📝 Manifest to manually add to Napolitain/scoop:');
+            console.log(manifestJson);
+            return;
+          }
+          
+          try {
+            // Get default branch
+            const { data: repoData } = await github.rest.repos.get({
+              owner: bucketOwner,
+              repo: bucketRepo
+            });
+            const defaultBranch = repoData.default_branch;
+            console.log(`Default branch: ${defaultBranch}`);
+            
+            // Get the latest commit SHA of the default branch
+            const { data: refData } = await github.rest.git.getRef({
+              owner: bucketOwner,
+              repo: bucketRepo,
+              ref: `heads/${defaultBranch}`
+            });
+            const baseSha = refData.object.sha;
+            console.log(`Base SHA: ${baseSha}`);
+            
+            // Create a new branch
+            try {
+              await github.rest.git.createRef({
+                owner: bucketOwner,
+                repo: bucketRepo,
+                ref: `refs/heads/${branchName}`,
+                sha: baseSha
+              });
+              console.log(`✓ Created branch: ${branchName}`);
+            } catch (e) {
+              if (e.message.includes('Reference already exists')) {
+                console.log(`Branch ${branchName} already exists, will update it`);
+              } else {
+                throw e;
+              }
+            }
+            
+            // Check if manifest file exists
+            let fileSha = null;
+            let isUpdate = false;
+            try {
+              const { data: fileData } = await github.rest.repos.getContent({
+                owner: bucketOwner,
+                repo: bucketRepo,
+                path: manifestPath,
+                ref: defaultBranch
+              });
+              fileSha = fileData.sha;
+              isUpdate = true;
+              console.log(`Found existing manifest, SHA: ${fileSha}`);
+            } catch (e) {
+              console.log('Manifest does not exist yet, will create new file');
+            }
+            
+            // Create or update the file in the new branch
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: bucketOwner,
+              repo: bucketRepo,
+              path: manifestPath,
+              message: `baremetal-gaming: ${isUpdate ? 'Update' : 'Add'} version ${version}`,
+              content: Buffer.from(manifestJson).toString('base64'),
+              branch: branchName,
+              sha: fileSha
+            });
+            console.log(`✓ ${isUpdate ? 'Updated' : 'Created'} manifest in branch ${branchName}`);
+            
+            // Create pull request
+            const prTitle = `baremetal-gaming: ${isUpdate ? 'Update' : 'Add'} version ${version}`;
+            const prBody = `## 🤖 Automated Scoop Manifest ${isUpdate ? 'Update' : 'Addition'}
+
+**Package:** baremetal-gaming
+**Version:** ${version}
+**Source:** ${repo.owner}/${repo.repo}
+
+### Changes
+- ${isUpdate ? 'Updated' : 'Added'} \`${manifestPath}\`
+- Version: ${version}
+- SHA256: \`${hash}\`
+- Download URL: ${downloadUrl}
+
+### Verification
+\`\`\`powershell
+# Install and test
+scoop install ${manifestPath.replace('bucket/', '')}
+smart-freeze --version
+\`\`\`
+
+### Release Notes
+${downloadUrl.replace('/download/', '/tag/')}
+
+---
+*This PR was automatically generated by the [Release workflow](https://github.com/${repo.owner}/${repo.repo}/actions/workflows/release.yml)*`;
+            
+            try {
+              const { data: pr } = await github.rest.pulls.create({
+                owner: bucketOwner,
+                repo: bucketRepo,
+                title: prTitle,
+                head: branchName,
+                base: defaultBranch,
+                body: prBody
+              });
+              
+              console.log(`✓ Created pull request: ${pr.html_url}`);
+              console.log(`  PR #${pr.number}: ${prTitle}`);
+              
+              // Add labels if they exist
+              try {
+                await github.rest.issues.addLabels({
+                  owner: bucketOwner,
+                  repo: bucketRepo,
+                  issue_number: pr.number,
+                  labels: ['automated', 'manifest-update']
+                });
+                console.log(`✓ Added labels to PR`);
+              } catch (e) {
+                console.log(`ℹ️  Could not add labels (may not exist): ${e.message}`);
+              }
+              
+            } catch (e) {
+              if (e.message.includes('A pull request already exists')) {
+                console.log(`ℹ️  Pull request already exists for branch ${branchName}`);
+                
+                // Find existing PR
+                const { data: prs } = await github.rest.pulls.list({
+                  owner: bucketOwner,
+                  repo: bucketRepo,
+                  head: `${bucketOwner}:${branchName}`,
+                  state: 'open'
+                });
+                
+                if (prs.length > 0) {
+                  console.log(`✓ Found existing PR: ${prs[0].html_url}`);
+                }
+              } else {
+                throw e;
+              }
+            }
+            
+          } catch (error) {
+            console.error('✗ Failed to create Scoop manifest PR:');
+            console.error(error.message);
+            console.log('');
+            console.log('📝 Manifest for manual PR:');
+            console.log(manifestJson);
+            // Don't fail the workflow if Scoop PR fails
+          }
