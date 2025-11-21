@@ -19,13 +19,13 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0  # Fetch all history for tag comparison
     
     - name: Check if release needed
       id: check
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
           const { execSync } = require('child_process');
@@ -96,7 +96,7 @@ jobs:
     
     - name: Create release archive and checksums
       if: steps.check.outputs.should_release == 'true'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
           const fs = require('fs');
@@ -132,7 +132,7 @@ jobs:
     
     - name: Create and push tag
       if: steps.check.outputs.should_release == 'true'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: |
           const { execSync } = require('child_process');
@@ -145,7 +145,7 @@ jobs:
     
     - name: Create GitHub Release
       if: steps.check.outputs.should_release == 'true'
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.check.outputs.release_tag }}
         name: Release ${{ steps.check.outputs.release_tag }}
@@ -178,7 +178,7 @@ jobs:
     
     - name: Create Scoop manifest PR
       if: steps.check.outputs.should_release == 'true'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       env:
         PAT_TOKEN: ${{ secrets.SCOOP_TOKEN }}
       with:

@@ -5,11 +5,6 @@ on:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g., v0.2.0)'
-        required: true
-        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,7 +19,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -54,7 +49,7 @@ jobs:
       shell: pwsh
     
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ env.VERSION }}
         name: Release ${{ env.VERSION }}
@@ -81,7 +76,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Create Scoop manifest PR
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       env:
         PAT_TOKEN: ${{ secrets.SCOOP_TOKEN }}
       with:
