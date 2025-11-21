@@ -30,6 +30,12 @@ jobs:
         script: |
           const { execSync } = require('child_process');
           
+          // Check if manually triggered - bypass commit check
+          const isManual = context.eventName === 'workflow_dispatch';
+          if (isManual) {
+            console.log('⚡ Manual trigger detected - bypassing commit check');
+          }
+          
           // Get latest tag
           let latestTag = null;
           try {
@@ -38,8 +44,8 @@ jobs:
             console.log('No tags found. Will create first release.');
           }
           
-          // Check for commits since last tag
-          if (latestTag) {
+          // Check for commits since last tag (skip if manual)
+          if (latestTag && !isManual) {
             console.log(`Latest tag: ${latestTag}`);
             const commitCount = execSync(`git rev-list ${latestTag}..HEAD --count`, { encoding: 'utf-8' }).trim();
             console.log(`Commits since last tag: ${commitCount}`);
