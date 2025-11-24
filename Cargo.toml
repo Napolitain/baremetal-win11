@@ -28,4 +28,4 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
 ] }
 tray-icon = "0.14"
-winit = "0.29"
+winit = "0.30"
